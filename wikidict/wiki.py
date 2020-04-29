@@ -32,7 +32,7 @@ def _continued_response(wiki, query_params, result_parse_func, max_results=10000
             raise MediaWikiException(response["error"]["info"])
         results = result_parse_func(response)
         for i in results:
-            if (received_results < max_results):
+            if received_results < max_results:
                 yield i
                 received_results += 1
             else:

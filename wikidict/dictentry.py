@@ -26,17 +26,3 @@ class DictEntry(object):
         if len(self.body) > 0:
             s += self.body + "\n"
         return s + "\n"
-
-    @classmethod
-    def from_wiki_page(cls, page: mediawiki.MediaWikiPage) -> DictEntry:
-        # TODO parse map from locations
-        return DictEntry(
-            headword=page.title,
-            body=Parser(page.content)
-                .remove_templates()
-                .get_first_section()
-                .to_markdown()
-                .content,
-            word_info=page.categories[0] if len(page.categories) > 0 else "",
-            variants=page.redirects
-        )
