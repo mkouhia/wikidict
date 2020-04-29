@@ -1,6 +1,6 @@
 import re
 from itertools import zip_longest
-from typing import Iterator, Dict, List, Iterable
+from typing import Iterator, Dict, List, Iterable, Tuple
 
 from mediawiki import MediaWiki, MediaWikiException
 from sqlalchemy import or_
@@ -56,9 +56,9 @@ def update_latest_revisions(wiki: MediaWiki, pages: Iterator[WikiPage], session:
         "rvprop": "ids",
     }
 
-    def parse_revid(response) -> List[WikiPage]:
+    def parse_revid(response) -> List[Tuple[int, int]]:
         response_pages = response["query"]["pages"]
-        return [WikiPage(id=int(i), latest_revision_online=response_pages[i]["revisions"][0]["revid"])
+        return [(response_pages[i]["pageid"], response_pages[i]["revisions"][0]["revid"])
                 for i in response_pages]
 
     # Take page batches from input iterator
@@ -66,10 +66,10 @@ def update_latest_revisions(wiki: MediaWiki, pages: Iterator[WikiPage], session:
         page_dict = {page.id: page for page in group if page is not None}
         query_params['pageids'] = "|".join(str(i) for i in page_dict.keys())
 
-        for page_revid in _continued_response(wiki, query_params, parse_revid):
-            page_proper = page_dict.get(page_revid.id)
-            page_proper.update(page_revid)
-            session.merge(page_proper)
+        for (page_id, revision_id) in _continued_response(wiki, query_params, parse_revid):
+            page = page_dict.get(page_id)
+            page.latest_revision_online = revision_id
+            session.merge(page)
 
         session.commit()
 
@@ -106,8 +106,6 @@ def update_pages(wiki: MediaWiki, session: Session, pages: Iterable[WikiPage], b
         "ellimit": "max",
     }
 
-    pending_redirects: Dict[WikiPage, str] = dict()
-
     def parse_and_add(response, session: Session) -> List[WikiPage]:
         ret = []
         for i in response["query"]["pages"]:
@@ -115,11 +113,8 @@ def update_pages(wiki: MediaWiki, session: Session, pages: Iterable[WikiPage], b
 
             content = obj["revisions"][0]["*"]
 
-
             m = re.match("#REDIRECT \\[\\[([^\\]]+)\\]\\].*", content)
-            redirect_to_title = m.group(1) if m else None
-            redirect_to_page = None
-            # redirect_to_page = session.query(WikiPage).filter(WikiPage.title == redirect_to_title).first() if m else None
+            redirect_to = None if m is None else session.query(WikiPage).filter(WikiPage.title == m.group(1)).first()
 
             page = session.query(WikiPage).get(obj["pageid"]) or WikiPage(id=obj["pageid"])
 
@@ -127,7 +122,7 @@ def update_pages(wiki: MediaWiki, session: Session, pages: Iterable[WikiPage], b
             page.latest_revision_online = obj["revisions"][0]["revid"]
             page.content = content
             page.title = obj["title"]
-                # redirect_to=redirect_to_page,
+            page.redirect_to=redirect_to
             session.merge(page)
 
             if 'categories' in obj:
@@ -135,8 +130,7 @@ def update_pages(wiki: MediaWiki, session: Session, pages: Iterable[WikiPage], b
                     cat = get_or_create(session, Category, name=re.sub('^Category:', '', category_obj["title"]))
                     page.categories.append(cat)
 
-            if redirect_to_page is None:
-                pending_redirects[page] = redirect_to_title
+            session.merge(page)
 
         return ret
 
@@ -152,27 +146,15 @@ def update_pages(wiki: MediaWiki, session: Session, pages: Iterable[WikiPage], b
 
         session.commit()
 
-    # # Handle pending redirects (possibly existing items)
-    # for page in list(pending_redirects.keys()):
-    #     redirect_to_p = session.query(WikiPage).filter(WikiPage.title == pending_redirects.get(page)).first()
-    #     if redirect_to_p is not None:
-    #         pending_redirects.pop(page)
-    #         page.redirect_to = redirect_to_p
-    #         session.merge(page)
-    #
-    # session.commit()
-    #
-    # # Handle pending redirects (force download remaining)
-    # if len(pending_redirects) > 0:
-    #     update_pages(wiki, session, pages=[WikiPage(title=t) for t in pending_redirects.values()], based_on='titles')
-    #
-    #     for page in pending_redirects.keys():
-    #         redirect_to_p = session.query(WikiPage).filter(WikiPage.title == pending_redirects.get(page)).first()
-    #         page.redirect_to = redirect_to_p
-    #         session.merge(page)
-    #
-    # session.commit()
+def update_redirects_from_content(session: Session):
+    for page in session.query(WikiPage).filter(WikiPage.content.like("#REDIRECT%")):
+        m = re.match("#REDIRECT \\[\\[([^\\]]+)\\]\\].*", page.content)
+        if m is None:
+            continue
+        page.redirect_to = session.query(WikiPage).filter(WikiPage.title == m.group(1)).first()
+        session.merge(page)
 
+    session.commit()
 
 def update_outdated_pages(wiki: MediaWiki, session: Session):
     """Check database table 'pages', download outdated pages
@@ -181,6 +163,6 @@ def update_outdated_pages(wiki: MediaWiki, session: Session):
     :param wiki:
     :param session:
     """
-    pages = session.query(WikiPage)\
+    pages = session.query(WikiPage) \
         .filter(or_(WikiPage.revision_id == None, WikiPage.revision_id < WikiPage.latest_revision_online))
     update_pages(wiki, session, pages)

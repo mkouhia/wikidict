@@ -62,6 +62,7 @@ def main():
 
     pages = get_pages(wiki, query_from="Azor Ahai", max_pages=15)
     update_latest_revisions(wiki, pages, session)
+
     update_outdated_pages(wiki, session)
 
     # for page in session.query(WikiPage).order_by('title').all():

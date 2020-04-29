@@ -41,18 +41,13 @@ class WikiPage(Base):
                 .to_markdown()
                 .content,
             word_info=self.categories[0].name if len(self.categories) > 0 else "",
-            variants=self.redirect_from).__str__()
+            variants=[p.title for p in self.redirect_from]).__str__()
 
     def __str__(self) -> str:
         return "(id={}, title={}, revision_id={}, latest_revision_online={}, redirect_from={}, redirect_to_id={}, " \
                "categories={}, content={})".format(
             self.id, self.title, self.revision_id, self.latest_revision_online, self.redirect_from, self.redirect_to_id,
             self.categories, self.content)
-
-    def update(self, other):
-        for key in ['id', 'revision_id', 'latest_revision_online', 'content', 'title', 'redirect_to_id', 'redirect_from', 'categories']:
-            if getattr(other, key) is not None:
-                setattr(self, key, getattr(other, key))
 
 
 class Category(Base):
