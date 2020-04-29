@@ -108,31 +108,32 @@ def update_pages(wiki: MediaWiki, session: Session, pages: Iterable[WikiPage], b
 
     pending_redirects: Dict[WikiPage, str] = dict()
 
-    def parse_props(response) -> List[WikiPage]:
+    def parse_and_add(response, session: Session) -> List[WikiPage]:
         ret = []
         for i in response["query"]["pages"]:
             obj = response["query"]["pages"][i]
 
             content = obj["revisions"][0]["*"]
 
-            categories = [get_or_create(session, Category, name=j["title"]) for j in obj["categories"]] if "categories" in obj else []
 
             m = re.match("#REDIRECT \\[\\[([^\\]]+)\\]\\].*", content)
             redirect_to_title = m.group(1) if m else None
             redirect_to_page = None
             # redirect_to_page = session.query(WikiPage).filter(WikiPage.title == redirect_to_title).first() if m else None
 
-            page = WikiPage(
-                id=obj["pageid"],
-                revision_id=obj["revisions"][0]["revid"],
-                latest_revision_online=obj["revisions"][0]["revid"],
-                content=content,
-                title=obj["title"],
-                # TODO
-                # categories=categories,
+            page = session.query(WikiPage).get(obj["pageid"]) or WikiPage(id=obj["pageid"])
+
+            page.revision_id = obj["revisions"][0]["revid"]
+            page.latest_revision_online = obj["revisions"][0]["revid"]
+            page.content = content
+            page.title = obj["title"]
                 # redirect_to=redirect_to_page,
-            )
-            ret.append(page)
+            session.merge(page)
+
+            if 'categories' in obj:
+                for category_obj in obj['categories']:
+                    cat = get_or_create(session, Category, name=re.sub('^Category:', '', category_obj["title"]))
+                    page.categories.append(cat)
 
             if redirect_to_page is None:
                 pending_redirects[page] = redirect_to_title
@@ -146,12 +147,8 @@ def update_pages(wiki: MediaWiki, session: Session, pages: Iterable[WikiPage], b
             refs = [str(page.id) for page in group if page is not None]
         query_params[based_on] = "|".join(refs)
 
-        page_dict = {page.id: page for page in group if page is not None}
-
-        for page_new in _continued_response(wiki, query_params, parse_props):
-            page_old = page_dict.get(page_new.id)
-            page_old.update(page_new)
-            session.merge(page_old)
+        for page_new in _continued_response(wiki, query_params, lambda response: parse_and_add(response, session)):
+            pass
 
         session.commit()
 

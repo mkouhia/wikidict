@@ -40,7 +40,7 @@ class WikiPage(Base):
                 .remove_category_links()
                 .to_markdown()
                 .content,
-            word_info=self.categories[0] if len(self.categories) > 0 else "",
+            word_info=self.categories[0].name if len(self.categories) > 0 else "",
             variants=self.redirect_from).__str__()
 
     def __str__(self) -> str:
