@@ -63,3 +63,25 @@ class Test(TestCase):
             query_params={'action': 'blah'}, result_parse_func=lambda: None)
         with self.assertRaises(MediaWikiException):
             list(iterator)
+
+    def test_update_pages_follow_redirects(self):
+        self.wiki_downloader.update_pages(session, page_titles=['Abel'])
+        self.assertIsNotNone(session.query(WikiPage).filter(WikiPage.title == 'Mance Rayder').first())
+
+
+
+    def test_link_redirects(self):
+        self.wiki_downloader.update_pages(session, page_titles=['Abel', 'Aegon I'], follow_redirects=False)
+        source_ids = []
+
+        for p in session.query(WikiPage):
+            self.assertIsNone(p.redirect_to_id)
+            source_ids.append(p.id)
+
+        self.wiki_downloader.update_pages(session, page_titles=['Mance Rayder', 'Aegon I Targaryen'], follow_redirects=False)
+
+        self.wiki_downloader.link_redirects(session, source_ids)
+
+        for source_id in source_ids:
+            p = session.query(WikiPage).get(source_id)
+            self.assertIsNotNone(p.redirect_to_id)

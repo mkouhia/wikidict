@@ -67,14 +67,14 @@ class WikiDownloader(object):
         return [(response_pages[i]['pageid'], response_pages[i]['revisions'][0]['revid'])
                 for i in response_pages]
 
-    def _continued_response(self, query_params: Dict, result_parse_func: Callable[[Dict], Any], max_results=100000)\
+    def _continued_response(self, query_params: Dict, result_parse_func: Callable[[Dict], Any], max_results: int = None) \
             -> Iterator[Any]:
         """Process continued response from MediaWiki API
 
         Follow 'continue' links until result is exhausted
         :param query_params: query parameters to wiki request
         :param result_parse_func: function that is employed to parse request JSON
-        :param max_results: fetch at maximum this amount of results, until returning
+        :param max_results: fetch at maximum this amount of results, until returning; None: get until exhaustion
         :return: iterator of result_parse_func results
         """
         received_results = 0
@@ -84,7 +84,7 @@ class WikiDownloader(object):
                 raise MediaWikiException(response['error']['info'])
             results = result_parse_func(response)
             for i in results:
-                if received_results < max_results:
+                if max_results is None or received_results < max_results:
                     yield i
                     received_results += 1
                 else:
@@ -106,12 +106,14 @@ class WikiDownloader(object):
             .filter(or_(WikiPage.revision_id == None, WikiPage.revision_id < WikiPage.latest_revision_online))  # noqa: E711
         self.update_pages(session, page_ids = (p.id for p in pages))
 
-    def update_pages(self, session: Session, page_ids: Iterable[int] = None, page_titles: Iterable[str] = None) -> None:
+    def update_pages(self, session: Session, page_ids: Iterable[int] = None, page_titles: Iterable[str] = None,
+                     follow_redirects=True) -> None:
         """Download pages, save to database.
 
         :param session: sql database session
         :param page_ids: page IDs. If None, use page_titles.
         :param page_titles: page titles, alternative to page IDs.
+        :param follow_redirects: re-download redirected pages and update those in database
         """
         max_pages = 50
         query_params = {
@@ -127,44 +129,53 @@ class WikiDownloader(object):
 
         based_on = 'pageids' if page_ids is not None else 'titles'
 
+        redirects: List[Tuple[int, str]] = []
+
         for group in self._iterable_grouper(page_ids or page_titles, n=max_pages):
             query_params[based_on] = '|'.join(str(s) for s in group if s is not None)
             logger.info('Update pages: {}={}'.format(based_on, query_params[based_on]))
 
-            page_iterator = self._continued_response(
+            result = self._continued_response(
                 query_params, lambda response: self._parse_pages_and_add(response, session))
-            # Consume iterator without assigning results
-            collections.deque(page_iterator, maxlen=0)
+
+            redirects.extend(result)
 
             session.commit()
 
+        # Download redirected pages, set connections
+        if follow_redirects and len(redirects) > 0:
+            redirect_source_ids, redirect_target_titles = zip(*redirects)
+            self.update_pages(session, page_titles=redirect_target_titles, follow_redirects=follow_redirects)
+            self.link_redirects(session, redirect_source_ids)
+
     @staticmethod
-    def _parse_pages_and_add(response: Dict, session: Session) -> List[WikiPage]:
+    def _parse_pages_and_add(response: Dict, session: Session) -> List[Tuple[int, str]]:
         """Parse network response, add parsed pages to database
 
         :param response: parsed dict from requests.Session.get().json()
         :param session: sql database session
-        :return: List of WikiPages, that are parsed and already merged to the session
+        :return: (page ID, target title) tuples for redirects, that need to be resolved
         """
         ret = []
         for i in response['query']['pages']:
             obj = response['query']['pages'][i]
             title = obj['title']
+            page_id = obj['pageid']
+
             logger.debug("Parsing wiki page for '{}'".format(title))
 
             content = obj['revisions'][0]['*']
 
             m = re.match('#REDIRECT \\[\\[([^\\]]+)\\]\\].*', content)
-            redirect_to = None if m is None else session.query(WikiPage).filter(
-                WikiPage.title == m.group(1)).first()
+            if m is not None:
+                ret.append((page_id, m.group(1)))
 
-            page = session.query(WikiPage).get(obj['pageid']) or WikiPage(id=obj['pageid'])
+            page = session.query(WikiPage).get(page_id) or WikiPage(id=page_id)
 
             page.revision_id = obj['revisions'][0]['revid']
             page.latest_revision_online = obj['revisions'][0]['revid']
             page.content = content
             page.title = title
-            page.redirect_to = redirect_to
 
             logger.debug("Page: " + str(page))
 
@@ -177,6 +188,29 @@ class WikiDownloader(object):
 
 
         return ret
+
+    @staticmethod
+    def link_redirects(session: Session, page_ids: List[int]):
+        """Link redirection pages
+
+        :param session: sql database session
+        :param page_ids: page IDs, from which to resolve the redirects
+        """
+        for source_id in page_ids:
+            source_page: WikiPage = session.query(WikiPage).get(source_id)
+            m = re.match('#REDIRECT \\[\\[([^\\]]+)\\]\\].*', source_page.content)
+
+            if m is None:
+                continue
+
+            target_title = m.group(1)
+            target_page = session.query(WikiPage).filter(WikiPage.title == target_title).first()
+
+            if target_page is None:
+                continue
+
+            source_page.redirect_to = target_page
+            session.add(source_page, target_page)
 
     @staticmethod
     def _iterable_grouper(iterable, n: int):
