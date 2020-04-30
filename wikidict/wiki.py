@@ -1,4 +1,3 @@
-import collections
 import logging
 import re
 from itertools import zip_longest
@@ -32,7 +31,8 @@ class WikiDownloader(object):
     def _parse_all_pages(response) -> List[WikiPage]:
         return [WikiPage(id=page['pageid'], title=page['title']) for page in response['query']['allpages']]
 
-    def update_latest_revisions(self, session: Session, page_ids: Iterable[int] = None, page_titles: Iterable[str] = None):
+    def update_latest_revisions(self, session: Session, page_ids: Iterable[int] = None,
+                                page_titles: Iterable[str] = None):
         """Get latest revision ID for all pages, update database
 
         :param session: sql database session
@@ -67,8 +67,8 @@ class WikiDownloader(object):
         return [(response_pages[i]['pageid'], response_pages[i]['revisions'][0]['revid'])
                 for i in response_pages]
 
-    def _continued_response(self, query_params: Dict, result_parse_func: Callable[[Dict], Any], max_results: int = None) \
-            -> Iterator[Any]:
+    def _continued_response(self, query_params: Dict, result_parse_func: Callable[[Dict], Any],
+                            max_results: int = None) -> Iterator[Any]:
         """Process continued response from MediaWiki API
 
         Follow 'continue' links until result is exhausted
@@ -103,8 +103,9 @@ class WikiDownloader(object):
         :param session: sql database session
         """
         pages = session.query(WikiPage) \
-            .filter(or_(WikiPage.revision_id == None, WikiPage.revision_id < WikiPage.latest_revision_online))  # noqa: E711
-        self.update_pages(session, page_ids = (p.id for p in pages))
+            .filter(or_(WikiPage.revision_id == None,  # noqa: E711
+                        WikiPage.revision_id < WikiPage.latest_revision_online))
+        self.update_pages(session, page_ids=(p.id for p in pages))
 
     def update_pages(self, session: Session, page_ids: Iterable[int] = None, page_titles: Iterable[str] = None,
                      follow_redirects=True) -> None:
@@ -185,7 +186,6 @@ class WikiDownloader(object):
                     page.categories.append(cat)
 
             session.merge(page)
-
 
         return ret
 
