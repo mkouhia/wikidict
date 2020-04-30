@@ -85,3 +85,32 @@ class Test(TestCase):
         for source_id in source_ids:
             p = session.query(WikiPage).get(source_id)
             self.assertIsNotNone(p.redirect_to_id)
+
+    def test_update_only_outdated(self):
+        page_titles = ['A Rose of Gold', 'A Thousand Eyes, and One', 'A World of Ice and Fire']
+
+        # 1. Download some pages
+        self.wiki_downloader.update_pages(session, page_titles=page_titles)
+        page_id = session.query(WikiPage)\
+            .filter(WikiPage.title == 'A World of Ice and Fire').first().id
+
+        # 2. Set older revision id for one page
+        session.query(WikiPage) \
+            .filter(WikiPage.title == 'A World of Ice and Fire')\
+            .update({'revision_id': (WikiPage.latest_revision_online - 1)})
+        session.commit()
+
+        # 3. Get revision IDs for all pages in database
+        self.wiki_downloader.update_latest_revisions(session, page_titles=page_titles)
+
+        # 4. See that only this one page needs to be downloaded
+        self.assertEqual(
+            ['A World of Ice and Fire'],
+            [p.title for p in session.query(WikiPage).filter(WikiPage.revision_id < WikiPage.latest_revision_online)]
+        )
+
+        # 5. See that only this one page is downloaded
+        self.assertEqual([page_id], self.wiki_downloader.update_outdated_pages(session))
+
+        # 6. See that the page has been updated in database
+        self.assertIsNone(session.query(WikiPage).filter(WikiPage.revision_id < WikiPage.latest_revision_online).first())

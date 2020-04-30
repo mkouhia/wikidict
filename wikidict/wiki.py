@@ -95,26 +95,28 @@ class WikiDownloader(object):
             else:
                 query_params.update(response['continue'])
 
-    def update_outdated_pages(self, session: Session) -> None:
+    def update_outdated_pages(self, session: Session) -> List[int]:
         """Check database table 'pages', download outdated pages
 
         Download pages, whose revision_id < latest_revision_online. Save to database.
 
         :param session: sql database session
+        :return: downloaded page IDs
         """
         pages = session.query(WikiPage) \
             .filter(or_(WikiPage.revision_id == None,  # noqa: E711
                         WikiPage.revision_id < WikiPage.latest_revision_online))
-        self.update_pages(session, page_ids=(p.id for p in pages))
+        return self.update_pages(session, page_ids=(p.id for p in pages), follow_redirects=False)
 
     def update_pages(self, session: Session, page_ids: Iterable[int] = None, page_titles: Iterable[str] = None,
-                     follow_redirects=True) -> None:
+                     follow_redirects=True):
         """Download pages, save to database.
 
         :param session: sql database session
         :param page_ids: page IDs. If None, use page_titles.
         :param page_titles: page titles, alternative to page IDs.
         :param follow_redirects: re-download redirected pages and update those in database
+        :return: downloaded page IDs
         """
         max_pages = 50
         query_params = {
@@ -124,42 +126,53 @@ class WikiDownloader(object):
             # categories
             'cllimit': 'max',
             'clshow': '!hidden',
-            # references
-            'ellimit': 'max',
         }
 
         based_on = 'pageids' if page_ids is not None else 'titles'
 
+        downloaded_ids: List[int] = []
         redirects: List[Tuple[int, str]] = []
 
         for group in self._iterable_grouper(page_ids or page_titles, n=max_pages):
             query_params[based_on] = '|'.join(str(s) for s in group if s is not None)
             logger.info('Update pages: {}={}'.format(based_on, query_params[based_on]))
 
-            result = self._continued_response(
+            _downloaded, _redirects = self._continued_response(
                 query_params, lambda response: self._parse_pages_and_add(response, session))
 
-            redirects.extend(result)
+            downloaded_ids.extend(_downloaded)
+            redirects.extend(_redirects)
 
             session.commit()
 
         # Download redirected pages, set connections
         if follow_redirects and len(redirects) > 0:
             redirect_source_ids, redirect_target_titles = zip(*redirects)
-            self.update_pages(session, page_titles=redirect_target_titles, follow_redirects=follow_redirects)
+            _downloaded = self.update_pages(session, page_titles=redirect_target_titles, follow_redirects=follow_redirects)
             self.link_redirects(session, redirect_source_ids)
 
+            downloaded_ids.extend(_downloaded)
+
+        return downloaded_ids
+
     @staticmethod
-    def _parse_pages_and_add(response: Dict, session: Session) -> List[Tuple[int, str]]:
+    def _parse_pages_and_add(response: Dict, session: Session) -> Tuple[List[int], List[Tuple[int, str]]]:
         """Parse network response, add parsed pages to database
 
         :param response: parsed dict from requests.Session.get().json()
         :param session: sql database session
-        :return: (page ID, target title) tuples for redirects, that need to be resolved
+        :return: list of downloaded page IDs,
+                 list of (page ID, target title) tuples for redirects, that need to be resolved
         """
-        ret = []
+        downloaded_ids = []
+        pending_redirects = []
         for i in response['query']['pages']:
             obj = response['query']['pages'][i]
+
+            if 'missing' in obj:
+                logger.warning('Missing object in API request result: ' + obj)
+                continue
+
             title = obj['title']
             page_id = obj['pageid']
 
@@ -167,9 +180,11 @@ class WikiDownloader(object):
 
             content = obj['revisions'][0]['*']
 
+            downloaded_ids.append(page_id)
+
             m = re.match('#REDIRECT \\[\\[([^\\]]+)\\]\\].*', content)
             if m is not None:
-                ret.append((page_id, m.group(1)))
+                pending_redirects.append((page_id, m.group(1)))
 
             page = session.query(WikiPage).get(page_id) or WikiPage(id=page_id)
 
@@ -187,7 +202,7 @@ class WikiDownloader(object):
 
             session.merge(page)
 
-        return ret
+        return downloaded_ids, pending_redirects
 
     @staticmethod
     def link_redirects(session: Session, page_ids: List[int]):
