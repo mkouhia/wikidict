@@ -6,6 +6,8 @@ from sqlalchemy.orm import sessionmaker
 
 from wikidict.model import Base
 
+__version__ = '0.0.0'
+
 db_file_name = 'wikidict.db'
 engine = create_engine('sqlite:///' + db_file_name)
 Session = sessionmaker(bind=engine)

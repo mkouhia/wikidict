@@ -1,13 +1,14 @@
 import argparse
 import logging
 
-from mediawiki import MediaWiki
+from mediawiki import MediaWiki, mediawiki
 
-from wikidict import Session, delete_database, ensure_database
+from wikidict import Session, delete_database, ensure_database, __version__
 from wikidict.dictionary import Dictionary
 from wikidict.wiki import WikiDownloader
 
 logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -15,17 +16,27 @@ def main():
 
     parser.add_argument('-o', '--output', help='output file path', default='-')
 
+    parser.add_argument('-u', '--api-url', help='API url for query',
+                        default='https://en.wikipedia.org/w/api.php')
+    parser.add_argument('-a', '--user-agent', help='User agent',
+                        default='wikidict/{} (https://github.com/mkouhia/wikidict; mkouhia@iki.fi) '
+                                'pymediawiki/{}'.format(__version__, mediawiki.VERSION))
+
+    parser.add_argument('-v', '--version', help='Display version and exit')
     parser.add_argument('--rebuild', help='Discard existing database and start with fresh one',
                         default=False, action="store_true")
 
     args = parser.parse_args()
 
+    logger.info(args)
+
+    if args.version:
+        print(__version__)
     if args.rebuild:
         delete_database()
     ensure_database()
 
-    print("API url: {}".format(args.api_url))
-    wiki = MediaWiki('https://awoiaf.westeros.org/index.php')
+    wiki = MediaWiki(url=args.api_url, user_agent=args.user_agent)
     wiki_downloader = WikiDownloader(wiki)
 
     session = Session()
