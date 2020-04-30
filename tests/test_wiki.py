@@ -2,15 +2,18 @@ from unittest import TestCase
 
 from mediawiki import MediaWiki
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 
 from wikidict.model import WikiPage, Base
-from wikidict.wiki import get_pages, update_latest_revisions
+from wikidict.wiki import WikiDownloader
 
 
 class Test(TestCase):
     wiki = MediaWiki('http://awoiaf.westeros.org/api.php')
+    wiki_downloader = WikiDownloader(wiki)
     engine = create_engine('sqlite://', echo=True)
+
+    session: Session
 
     def setUp(self) -> None:
         Base.metadata.drop_all(self.engine)
@@ -18,22 +21,21 @@ class Test(TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        Session = sessionmaker(bind=cls.engine)
-        cls.session = Session()
+        cls.session = sessionmaker(bind=cls.engine)()
 
     @classmethod
     def tearDownClass(cls) -> None:
         cls.session.close()
 
     def test_get_pages(self):
-        pages = get_pages(wiki=self.wiki, query_from="A Clash of Kings-Chapter 1", max_pages=4)
+        pages = self.wiki_downloader.get_pages(query_from='A Clash of Kings-Chapter 1', max_pages=4)
         self.assertEqual(
-            ["A Clash of Kings-Chapter 1", "A Clash of Kings-Chapter 10", "A Clash of Kings-Chapter 11",
-             "A Clash of Kings-Chapter 12"],
+            ['A Clash of Kings-Chapter 1', 'A Clash of Kings-Chapter 10', 'A Clash of Kings-Chapter 11',
+             'A Clash of Kings-Chapter 12'],
             [p.title for p in pages])
 
     def test_update_latest_revisions(self):
-        update_latest_revisions(self.wiki, (WikiPage(id=i) for i in [2581, 14424, 2752]), self.session)
+        self.wiki_downloader.update_latest_revisions((WikiPage(id=i) for i in [2581, 14424, 2752]), self.session)
 
         self.assertEqual(3, self.session.query(WikiPage).count())
 
