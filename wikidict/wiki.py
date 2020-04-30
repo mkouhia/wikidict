@@ -148,7 +148,8 @@ class WikiDownloader(object):
         # Download redirected pages, set connections
         if follow_redirects and len(redirects) > 0:
             redirect_source_ids, redirect_target_titles = zip(*redirects)
-            _downloaded = self.update_pages(session, page_titles=redirect_target_titles, follow_redirects=follow_redirects)
+            _downloaded = self.update_pages(session, page_titles=redirect_target_titles,
+                                            follow_redirects=follow_redirects)
             self.link_redirects(session, redirect_source_ids)
 
             downloaded_ids.extend(_downloaded)

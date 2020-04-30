@@ -1,4 +1,3 @@
-import json
 from unittest import TestCase
 
 from mediawiki import MediaWiki, MediaWikiException
@@ -67,8 +66,6 @@ class Test(TestCase):
     def test_update_pages_follow_redirects(self):
         self.wiki_downloader.update_pages(session, page_titles=['Abel'])
         self.assertIsNotNone(session.query(WikiPage).filter(WikiPage.title == 'Mance Rayder').first())
-
-
 
     def test_link_redirects(self):
         self.wiki_downloader.update_pages(session, page_titles=['Abel', 'Aegon I'], follow_redirects=False)
