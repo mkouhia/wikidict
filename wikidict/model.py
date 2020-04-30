@@ -25,11 +25,15 @@ class WikiPage(Base):
     categories = relationship('Category', secondary=category_association, backref='pages')
 
     def __str__(self) -> str:
-        return '(id={}, title={}, revision_id={}, latest_revision_online={}, redirect_from={}, ' \
-               'redirect_to_id={}, categories={}, content={})' \
+        return "(id={}, title='{}', revision_id={}, latest_revision_online={}, " \
+               "redirect_from={}, " \
+               "redirect_to_id={}, categories={}, " \
+               "content='{}')" \
             .format(
-                self.id, self.title, self.revision_id, self.latest_revision_online, self.redirect_from,
-                self.redirect_to_id, self.categories, self.content)
+                self.id, self.title, self.revision_id, self.latest_revision_online,
+                [p.title for p in self.redirect_from],
+                self.redirect_to_id, [c.name for c in self.categories],
+                self.content if (self.content is None or len(self.content) < 50) else self.content[:50] + '[...]')
 
 
 class Category(Base):
@@ -40,16 +44,19 @@ class Category(Base):
 
 def get_or_create(session: Session, model: Base, **kwargs: Any) -> Any:
     """Get or create database object from session
+
+    Add object to session, do not commit
+
     :param session: sql database session
     :param model: model class
     :param kwargs: arguments for session.query(model).filter_by(**kwargs)
     :return: first query result or None
     """
-    instance = session.query(model).filter_by(**kwargs).first()
-    if instance:
-        return instance
-    else:
-        instance = model(**kwargs)
-        session.add(instance)
-        session.commit()
-        return instance
+    with session.no_autoflush:
+        instance = session.query(model).filter_by(**kwargs).first()
+        if instance:
+            return instance
+        else:
+            instance = model(**kwargs)
+            session.add(instance)
+            return instance

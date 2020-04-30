@@ -34,7 +34,7 @@ def main():
     session = Session()
 
     pages = wiki_downloader.get_pages(query_from='Azor Ahai', max_pages=15)
-    wiki_downloader.update_latest_revisions(pages, session)
+    wiki_downloader.update_latest_revisions(session, page_ids=(p.id for p in pages))
 
     wiki_downloader.update_outdated_pages(session)
 

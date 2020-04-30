@@ -9,6 +9,7 @@ verify_ssl = true
 pymediawiki = {editable = true,git = "https://github.com/mkouhia/mediawiki.git"}
 mwparserfromhell = "*"
 sqlalchemy = "*"
+coverage = "*"
 
 [requires]
 python_version = "3.8"

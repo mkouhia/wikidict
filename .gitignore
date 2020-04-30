@@ -1,2 +1,5 @@
 wikidict.db
 __pycache__/
+*.pyc
+.coverage
+htmlcov/

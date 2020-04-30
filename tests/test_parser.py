@@ -1,4 +1,5 @@
 import unittest
+from unittest import TestCase
 
 from wikidict.parser import Parser
 
@@ -28,6 +29,6 @@ class TestParser(unittest.TestCase):
         source = '[[test|bed]][[x lol|word another]] yy'
         self.assertEqual('[bed](#test)[word another](#x-lol) yy', Parser(source).to_markdown().content)
 
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_remove_category_links(self):
+        source = 'test [[link]]\n[[Category:Cat name]]'
+        self.assertEqual('test [[link]]\n', Parser(source).remove_category_links().content)
