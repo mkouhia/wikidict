@@ -82,6 +82,8 @@ class WikiDownloader(object):
             response = self.wiki.wiki_request(query_params)
             if 'error' in response:
                 raise MediaWikiException(response['error']['info'])
+            if 'warnings' in response:
+                logger.warning('API warning' + response['warnings']['main']['*'])
             results = result_parse_func(response)
             for i in results:
                 if max_results is None or received_results < max_results:

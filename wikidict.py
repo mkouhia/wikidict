@@ -1,42 +1,38 @@
-import contextlib
-import sys
+import argparse
+import logging
 
 from mediawiki import MediaWiki
-from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker, Session
 
+from wikidict import Session, delete_database, ensure_database
 from wikidict.dictionary import Dictionary
-from wikidict.model import WikiPage, Base
 from wikidict.wiki import WikiDownloader
 
-engine = create_engine('sqlite:///wikidict.db')
-
-
-@event.listens_for(Engine, 'connect')
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    """Set pragma foreign_keys=ON for SQLite database"""
-    cursor = dbapi_connection.cursor()
-    cursor.execute('PRAGMA foreign_keys=ON')
-    cursor.close()
+logging.basicConfig(level=logging.WARNING)
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Create a dictionary from wiki articles')
 
-    url = 'http://awoiaf.westeros.org/api.php'
-    wiki = MediaWiki(url)
+    parser.add_argument('-o', '--output', help='output file path', default='-')
+
+    parser.add_argument('--rebuild', help='Discard existing database and start with fresh one',
+                        default=False, action="store_true")
+
+    args = parser.parse_args()
+
+    if args.rebuild:
+        delete_database()
+    ensure_database()
+
+    print("API url: {}".format(args.api_url))
+    wiki = MediaWiki('https://awoiaf.westeros.org/index.php')
     wiki_downloader = WikiDownloader(wiki)
 
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
-
-    Session = sessionmaker(bind=engine)
     session = Session()
 
-    pages = wiki_downloader.get_pages(query_from='Azor Ahai', max_pages=15)
+    pages = wiki_downloader.get_pages(query_from='', max_pages=None)
     wiki_downloader.update_latest_revisions(session, page_ids=(p.id for p in pages))
-
-    wiki_downloader.update_outdated_pages(session)
+    # wiki_downloader.update_outdated_pages(session)
 
     dictionary = Dictionary(session)
     dictionary.save('-')
