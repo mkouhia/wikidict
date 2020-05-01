@@ -17,12 +17,12 @@ class WikiDownloader(object):
     def __init__(self, wiki: MediaWiki):
         self.wiki = wiki
 
-    def get_pages(self, query_from='', max_pages=100000) -> Iterator[WikiPage]:
+    def get_pages(self, query_from='', max_pages: int = None) -> Iterator[WikiPage]:
         """Get pages (id & title)
         :param query_from: query: get page names starting from this (empty string: from the beginning)
-        :param max_pages: retrieve approximately this amount of pages at maximum
+        :param max_pages: fetch at maximum this amount of results, until returning; None: get until exhaustion
         """
-        n_batch = 500 if max_pages > 500 else max_pages
+        n_batch = 500 if (max_pages is None or max_pages > 500) else max_pages
         query_params = {'list': 'allpages', 'aplimit': n_batch, 'apfrom': query_from}
 
         yield from self._continued_response(query_params, self._parse_all_pages, max_pages)
@@ -209,7 +209,7 @@ class WikiDownloader(object):
 
     @staticmethod
     def link_redirects(session: Session, page_ids: List[int]):
-        """Link redirection pages
+        """Link redirection pages and commit
 
         :param session: sql database session
         :param page_ids: page IDs, from which to resolve the redirects
@@ -229,6 +229,8 @@ class WikiDownloader(object):
 
             source_page.redirect_to = target_page
             session.add(source_page, target_page)
+
+        session.commit()
 
     @staticmethod
     def _iterable_grouper(iterable, n: int):
