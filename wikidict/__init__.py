@@ -1,5 +1,6 @@
 import os
 
+from mediawiki import mediawiki
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
@@ -7,6 +8,8 @@ from sqlalchemy.orm import sessionmaker
 from wikidict.model import Base
 
 __version__ = '0.0.0'
+__user_agent__ = 'wikidict/{} (https://github.com/mkouhia/wikidict; mkouhia@iki.fi) ' \
+                 'pymediawiki/{}'.format(__version__, mediawiki.VERSION)
 
 db_file_name = 'wikidict.db'
 engine = create_engine('sqlite:///' + db_file_name)

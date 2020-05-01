@@ -1,9 +1,9 @@
 import argparse
 import logging
 
-from mediawiki import MediaWiki, mediawiki
+from mediawiki import MediaWiki
 
-from wikidict import Session, delete_database, ensure_database, __version__
+from wikidict import Session, delete_database, ensure_database, __version__, __user_agent__
 from wikidict.dictionary import Dictionary
 from wikidict.wiki import WikiDownloader
 
@@ -18,9 +18,7 @@ def main():
 
     parser.add_argument('-u', '--api-url', help='API url for query',
                         default='https://en.wikipedia.org/w/api.php')
-    parser.add_argument('-a', '--user-agent', help='User agent',
-                        default='wikidict/{} (https://github.com/mkouhia/wikidict; mkouhia@iki.fi) '
-                                'pymediawiki/{}'.format(__version__, mediawiki.VERSION))
+    parser.add_argument('-a', '--user-agent', help='User agent', default=__user_agent__)
 
     parser.add_argument('-v', '--version', help='Display version and exit')
     parser.add_argument('--rebuild', help='Discard existing database and start with fresh one',
