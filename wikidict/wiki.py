@@ -98,7 +98,7 @@ class WikiDownloader(object):
         :param max_results: fetch at maximum this amount of results, until returning; None: get until exhaustion
         :return: iterator of result_parse_func results
         """
-        received_results = 0
+        result_idx = 1
         while True:
             response = self.wiki.wiki_request(query_params)
             if 'error' in response:
@@ -107,9 +107,9 @@ class WikiDownloader(object):
                 logger.warning('API warning' + response['warnings']['main']['*'])
             results = result_parse_func(response)
             for i in results:
-                if max_results is None or received_results < max_results:
+                if max_results is None or result_idx < max_results:
                     yield i
-                    received_results += 1
+                    result_idx += 1
                 else:
                     return
 
@@ -126,6 +126,7 @@ class WikiDownloader(object):
         :param session: sql database session
         :return: downloaded page IDs
         """
+        logger.info('Update outdated pages')
         pages = session.query(WikiPage) \
             .filter(or_(WikiPage.revision_id == None,  # noqa: E711
                         WikiPage.revision_id < WikiPage.latest_revision_online))
