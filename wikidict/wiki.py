@@ -17,40 +17,61 @@ class WikiDownloader(object):
     def __init__(self, wiki: MediaWiki):
         self.wiki = wiki
 
-    def get_pages(self, query_from='', max_pages: int = None) -> Iterator[WikiPage]:
-        """Get pages (id & title)
+    def get_page_list(self, session: Session, query_from='', max_pages: int = None) -> None:
+        """Get pages (id & title), commit to database
+
+        :param session: sql database session
         :param query_from: query: get page names starting from this (empty string: from the beginning)
         :param max_pages: fetch at maximum this amount of results, until returning; None: get until exhaustion
         """
+        logger.info("Get page list")
+
         n_batch = 500 if (max_pages is None or max_pages > 500) else max_pages
         query_params = {'list': 'allpages', 'aplimit': n_batch, 'apfrom': query_from}
 
-        yield from self._continued_response(query_params, self._parse_all_pages, max_pages)
+        page_iterator = self._continued_response(
+            query_params, lambda response: self._merge_page_list(response=response, session=session), max_pages)
+
+        list(page_iterator)
+
 
     @staticmethod
-    def _parse_all_pages(response) -> List[WikiPage]:
-        return [WikiPage(id=page['pageid'], title=page['title']) for page in response['query']['allpages']]
+    def _merge_page_list(response: Dict, session: Session) -> List[int]:
+        ret = []
+        for page_dict in response['query']['allpages']:
+            ret.append(page_dict['pageid'])
+            page = WikiPage(id=page_dict['pageid'], title=page_dict['title'])
+            session.merge(page)
+        session.commit()
+
+        return ret
 
     def update_latest_revisions(self, session: Session, page_ids: Iterable[int] = None,
-                                page_titles: Iterable[str] = None):
+                                page_titles: Iterable[str] = None) -> None:
         """Get latest revision ID for all pages, update database
 
         :param session: sql database session
         :param page_ids: page IDs. If None, use page_titles.
-        :param page_titles: page titles, alternative to page IDs.
+        :param page_titles: page titles, alternative to page IDs. If both lists are None, get list from database.
         """
+        logger.info('Update latest revisions')
+
         max_pages = 50
         query_params = {
             'prop': 'revisions',
             'rvprop': 'ids',
         }
 
-        based_on = 'pageids' if page_ids is not None else 'titles'
+        if page_ids is None and page_titles is None:
+            based_on = 'pageids'
+            page_ids = (page.id for page in session.query(WikiPage))
+        else:
+            based_on = 'pageids' if page_ids is not None else 'titles'
 
         # Take page batches from input iterator
         for group in self._iterable_grouper(page_ids or page_titles, n=max_pages):
             query_params[based_on] = '|'.join(str(s) for s in group if s is not None)
-            logger.info('Update latest revisions: {}={}'.format(based_on, query_params[based_on]))
+            logger.debug('Update latest revisions: {}={}'.format(based_on, query_params[based_on]))
 
             for (page_id, revision_id) in self._continued_response(query_params, self._parse_revision):
                 session.merge(WikiPage(id=page_id, latest_revision_online=revision_id))
@@ -77,7 +98,7 @@ class WikiDownloader(object):
         :param max_results: fetch at maximum this amount of results, until returning; None: get until exhaustion
         :return: iterator of result_parse_func results
         """
-        received_results = 0
+        result_idx = 1
         while True:
             response = self.wiki.wiki_request(query_params)
             if 'error' in response:
@@ -86,9 +107,9 @@ class WikiDownloader(object):
                 logger.warning('API warning' + response['warnings']['main']['*'])
             results = result_parse_func(response)
             for i in results:
-                if max_results is None or received_results < max_results:
+                if max_results is None or result_idx < max_results:
                     yield i
-                    received_results += 1
+                    result_idx += 1
                 else:
                     return
 
@@ -105,6 +126,7 @@ class WikiDownloader(object):
         :param session: sql database session
         :return: downloaded page IDs
         """
+        logger.info('Update outdated pages')
         pages = session.query(WikiPage) \
             .filter(or_(WikiPage.revision_id == None,  # noqa: E711
                         WikiPage.revision_id < WikiPage.latest_revision_online))
