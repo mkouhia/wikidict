@@ -21,11 +21,11 @@ class Test(TestCase):
         Base.metadata.create_all(engine)
 
     def test_get_pages(self):
-        pages = self.wiki_downloader.get_pages(query_from='A Clash of Kings-Chapter 1', max_pages=4)
+        self.wiki_downloader.get_page_list(session, query_from='A Clash of Kings-Chapter 1', max_pages=4)
         self.assertEqual(
-            ['A Clash of Kings-Chapter 1', 'A Clash of Kings-Chapter 10', 'A Clash of Kings-Chapter 11',
-             'A Clash of Kings-Chapter 12'],
-            [p.title for p in pages])
+            {'A Clash of Kings-Chapter 1', 'A Clash of Kings-Chapter 10', 'A Clash of Kings-Chapter 11',
+             'A Clash of Kings-Chapter 12'},
+            {p.title for p in session.query(WikiPage)})
 
     def test_update_latest_revisions(self):
         page_ids = [2581, 14424, 2752]
