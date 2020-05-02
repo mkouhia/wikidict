@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import sys
 from typing import List
 
@@ -8,6 +9,9 @@ from sqlalchemy.orm import Session
 
 from wikidict.model import WikiPage
 from wikidict.parser import Parser
+
+
+logger = logging.getLogger(__name__)
 
 
 class Dictionary(object):
@@ -20,6 +24,7 @@ class Dictionary(object):
         :param file_path: file path, or '-'/None for stdout
         :param dict_format: dictionary format. Allowed values: 'kobo'
         """
+        logger.info('Writing output file')
         pages = self.session.query(WikiPage) \
             .filter(WikiPage.redirect_to_id == None).order_by('title')  # noqa: E711
 
@@ -61,7 +66,7 @@ class DictEntry(object):
             raise ValueError('Unknown dictionary format: {}'.format(dict_format))
 
     def _format_kobo(self):
-        body = Parser(self.content)\
+        body = "" if self.content is None else Parser(self.content)\
                    .remove_templates()\
                    .get_first_section()\
                    .remove_category_links()\
